@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Scratch GIF Thumbnail",
+  "version": "1.0",
+  "description": "making thumbnails to animated",
+  "permissions": ["activeTab", "scripting"],
+  "host_permissions": [
+    "https://scratch.mit.edu/*"
+  ],
+  "action": {
+    "default_title": "thumb gif"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}
