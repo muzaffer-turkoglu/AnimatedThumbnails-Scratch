@@ -1,102 +1,269 @@
+// background.js
+// Handles the extension icon click and injects the thumbnail changer into Scratch project pages.
+
+const SCRATCH_PROJECT_REGEX = /^https?:\/\/scratch\.mit\.edu\/projects\/\d+/;
+
 chrome.action.onClicked.addListener(async (tab) => {
-  // Sadece Scratch proje sayfalarında çalışsın
-  if (!tab.url || !tab.url.includes("scratch.mit.edu/projects/")) {
-    chrome.scripting.executeScript({
+  // Bail out if we're not on a Scratch project page
+  if (!tab || !tab.url || !SCRATCH_PROJECT_REGEX.test(tab.url)) {
+    await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      func: () => alert("Lütfen bir Scratch proje sayfasında kullanın!")
+      func: () => alert("This extension only works on Scratch project pages.\n\nExample: scratch.mit.edu/projects/123456789")
     });
     return;
   }
 
-  // Kodu sayfaya enjekte et
-  chrome.scripting.executeScript({
+  // Inject the main function into the page
+  await chrome.scripting.executeScript({
     target: { tabId: tab.id },
-    func: scratchThumbnailChanger
+    func: initThumbnailChanger
   });
 });
 
-// Sayfada çalışacak asıl fonksiyon
-function scratchThumbnailChanger() {
-  // Zaten açıksa tekrar açma
-  if (document.getElementById("snackbar")) {
-    document.getElementById("snackbar").style.visibility = "visible";
+
+/* ============================================================
+   Runs inside the page context
+   ============================================================ */
+function initThumbnailChanger() {
+  // Don't open twice
+  const existing = document.getElementById("stc-snackbar");
+  if (existing) {
+    existing.style.visibility = "visible";
+    existing.style.opacity = "1";
     return;
   }
 
-  var projectID = document.location.pathname.replace(/\D/g, '');
+  const projectId = document.location.pathname.replace(/\D/g, "");
 
-  // Snackbar oluştur
-  var snackbar = document.createElement("div");
-  snackbar.id = "snackbar";
-  snackbar.style.cssText = "visibility: hidden; min-width: 250px; margin-left: -125px; background-color: black; color: #fff; text-align: center; border-radius: 2px; padding: 16px; position: fixed; z-index: 99999; left: 50%; top: 50px; font-family: sans-serif;";
-  snackbar.innerHTML = '<a id="selectThumbnailFile" style="color:#4d97ff;cursor:pointer;">Bir resim seç</a> veya sayfaya sürükle bırak.<br><a onclick="document.getElementById(\'snackbar\').style.visibility=\'hidden\';" style="color:#4d97ff;cursor:pointer;">Kapat</a>';
+  /* ---------- Styles ---------- */
+  const style = document.createElement("style");
+  style.textContent = `
+    #stc-snackbar {
+      position: fixed;
+      top: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      min-width: 320px;
+      max-width: 420px;
+      padding: 18px 22px;
+      background: #1f1f1f;
+      color: #ffffff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      text-align: center;
+      border-radius: 12px;
+      box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+      z-index: 999999;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.25s ease, visibility 0.25s ease;
+    }
+    #stc-snackbar.visible {
+      opacity: 1;
+      visibility: visible;
+    }
+    #stc-snackbar a {
+      color: #4d97ff;
+      cursor: pointer;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    #stc-snackbar a:hover {
+      text-decoration: underline;
+    }
+    #stc-snackbar .stc-sep {
+      margin: 8px 0;
+      opacity: 0.5;
+    }
+    #stc-snackbar .stc-progress {
+      margin-top: 12px;
+      height: 6px;
+      background: #333;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    #stc-snackbar .stc-progress-bar {
+      height: 100%;
+      width: 0%;
+      background: #4d97ff;
+      transition: width 0.15s ease;
+    }
+    #stc-snackbar img {
+      display: block;
+      margin: 12px auto;
+      border-radius: 6px;
+      background: #fff;
+    }
+  `;
+  document.head.appendChild(style);
+
+  /* ---------- Snackbar ---------- */
+  const snackbar = document.createElement("div");
+  snackbar.id = "stc-snackbar";
+  snackbar.innerHTML = `
+    <div>
+      <a id="stc-select">Select an image</a> or drag and drop anywhere on this page.
+    </div>
+    <div class="stc-sep">—</div>
+    <a id="stc-close">Close</a>
+  `;
   document.body.appendChild(snackbar);
-  snackbar.style.visibility = "visible";
 
-  // Dosya input
-  var fileInput = document.createElement("input");
-  fileInput.id = "uploadthumbnail";
+  // Fade-in animation
+  requestAnimationFrame(() => snackbar.classList.add("visible"));
+
+  const selectBtn = document.getElementById("stc-select");
+  const closeBtn = document.getElementById("stc-close");
+
+  /* ---------- Hidden file input ---------- */
+  const fileInput = document.createElement("input");
   fileInput.type = "file";
   fileInput.accept = "image/*";
   fileInput.style.display = "none";
   document.body.appendChild(fileInput);
 
-  document.getElementById("selectThumbnailFile").onclick = function () {
-    fileInput.click();
-  };
+  selectBtn.onclick = () => fileInput.click();
+  closeBtn.onclick = () => hideSnackbar();
 
-  // Cookie oku
+  function hideSnackbar() {
+    snackbar.classList.remove("visible");
+  }
+
+  /* ---------- Cookie helper ---------- */
   function getCookie(name) {
-    var value = "; " + document.cookie;
-    var parts = value.split("; " + name + "=");
-    if (parts.length == 2) return parts.pop().split(";").shift();
+    const value = "; " + document.cookie;
+    const parts = value.split("; " + name + "=");
+    return parts.length === 2 ? parts.pop().split(";").shift() : null;
   }
 
-  // Yükleme fonksiyonu
+  /* ---------- Snackbar state helpers ---------- */
+  function showMessage(html) {
+    snackbar.innerHTML = html;
+    snackbar.classList.add("visible");
+
+    const close = document.getElementById("stc-close");
+    if (close) close.onclick = () => hideSnackbar();
+
+    const select = document.getElementById("stc-select");
+    if (select) select.onclick = () => fileInput.click();
+  }
+
+  function showProgress(percent) {
+    snackbar.innerHTML = `
+      <div>Uploading… <strong>${percent}%</strong></div>
+      <div class="stc-progress"><div class="stc-progress-bar" style="width:${percent}%"></div></div>
+    `;
+    snackbar.classList.add("visible");
+  }
+
+  function showSuccess(previewUrl) {
+    snackbar.innerHTML = `
+      <div>Thumbnail updated successfully!</div>
+      <img src="${previewUrl}" width="144" height="108">
+      <div class="stc-sep">—</div>
+      <a id="stc-select">Select another image</a><br>
+      <a id="stc-close">Close</a>
+    `;
+    snackbar.classList.add("visible");
+
+    document.getElementById("stc-select").onclick = () => fileInput.click();
+    document.getElementById("stc-close").onclick = () => hideSnackbar();
+  }
+
+  function showError(text) {
+    snackbar.innerHTML = `
+      <div>${text}</div>
+      <div class="stc-sep">—</div>
+      <a id="stc-select">Select another image</a><br>
+      <a id="stc-close">Close</a>
+    `;
+    snackbar.classList.add("visible");
+
+    document.getElementById("stc-select").onclick = () => fileInput.click();
+    document.getElementById("stc-close").onclick = () => hideSnackbar();
+  }
+
+  /* ---------- Upload ---------- */
   function uploadThumbnail(file) {
-    snackbar.innerHTML = "Dosya okunuyor...";
-    var reader = new FileReader();
-    reader.onload = function (e) {
-      var xhr = new XMLHttpRequest();
-      xhr.open("POST", "/internalapi/project/thumbnail/" + projectID + "/set/", true);
-      xhr.setRequestHeader("X-csrftoken", getCookie("scratchcsrftoken"));
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      showError("Please select an image file.");
+      return;
+    }
+
+    showMessage("Reading file…");
+
+    const reader = new FileReader();
+
+    reader.onload = (event) => {
+      const previewUrl = event.target.result;
+      const csrf = getCookie("scratchcsrftoken");
+
+      if (!csrf) {
+        showError("Session not found. Please log in to Scratch.");
+        return;
+      }
+
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `/internalapi/project/thumbnail/${projectId}/set/`, true);
+      xhr.setRequestHeader("X-csrftoken", csrf);
       xhr.setRequestHeader("Content-Type", "");
-      xhr.upload.onprogress = function (e) {
+
+      xhr.upload.onprogress = (e) => {
         if (e.lengthComputable) {
-          var progress = Math.floor((e.loaded / e.total) * 100) + "%";
-          snackbar.innerHTML = "Yükleniyor... " + progress;
+          showProgress(Math.floor((e.loaded / e.total) * 100));
         }
       };
-      xhr.onload = function () {
+
+      xhr.onload = () => {
         if (xhr.status === 200) {
-          snackbar.innerHTML = 'Kapak başarıyla değiştirildi!<br><a onclick="document.getElementById(\'snackbar\').style.visibility=\'hidden\';" style="color:#4d97ff;cursor:pointer;">Kapat</a>';
+          showSuccess(previewUrl);
         } else {
-          snackbar.innerHTML = 'Hata: Yüklenemedi.<br><a onclick="document.getElementById(\'snackbar\').style.visibility=\'hidden\';" style="color:#4d97ff;cursor:pointer;">Kapat</a>';
+          showError("Upload failed. Try a smaller image.");
         }
       };
-      xhr.onerror = function () {
-        snackbar.innerHTML = 'Hata: İstek gönderilemedi.<br><a onclick="document.getElementById(\'snackbar\').style.visibility=\'hidden\';" style="color:#4d97ff;cursor:pointer;">Kapat</a>';
-      };
-      xhr.send(e.target.result);
+
+      xhr.onerror = () => showError("Request failed. Check your connection.");
+
+      // Convert data URL to ArrayBuffer for the POST body
+      const base64 = previewUrl.split(",")[1];
+      const binary = atob(base64);
+      const buffer = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        buffer[i] = binary.charCodeAt(i);
+      }
+      xhr.send(buffer.buffer);
     };
-    reader.readAsArrayBuffer(file);
+
+    reader.onerror = () => showError("Could not read the file.");
+
+    reader.readAsDataURL(file);
   }
 
-  fileInput.onchange = function () {
-    if (fileInput.files[0]) uploadThumbnail(fileInput.files[0]);
+  fileInput.onchange = () => {
+    if (fileInput.files[0]) {
+      uploadThumbnail(fileInput.files[0]);
+    }
   };
 
-  // Sürükle bırak
-  document.addEventListener("dragover", function (e) {
+  /* ---------- Drag & drop ---------- */
+  const dragOverHandler = (e) => {
     e.stopPropagation();
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
-  });
-  document.addEventListener("drop", function (e) {
+  };
+
+  const dropHandler = (e) => {
     e.stopPropagation();
     e.preventDefault();
-    if (e.dataTransfer.items[0]) {
-      uploadThumbnail(e.dataTransfer.items[0].getAsFile());
+    const item = e.dataTransfer.items[0];
+    if (item && item.kind === "file") {
+      uploadThumbnail(item.getAsFile());
     }
-  });
+  };
+
+  document.addEventListener("dragover", dragOverHandler);
+  document.addEventListener("drop", dropHandler);
 }
