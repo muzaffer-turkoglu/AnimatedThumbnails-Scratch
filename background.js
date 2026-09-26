@@ -1,5 +1,4 @@
-// background.js
-// Handles the extension icon click and injects the thumbnail changer into Scratch project pages.
+
 
 const SCRATCH_PROJECT_REGEX = /^https?:\/\/scratch\.mit\.edu\/projects\/\d+/;
 
@@ -8,7 +7,7 @@ chrome.action.onClicked.addListener(async (tab) => {
   if (!tab || !tab.url || !SCRATCH_PROJECT_REGEX.test(tab.url)) {
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      func: () => alert("This extension only works on Scratch project pages.\n\nExample: scratch.mit.edu/projects/123456789")
+      func: () => alert("Only works in your scrath project page(not editor)")
     });
     return;
   }
@@ -21,9 +20,7 @@ chrome.action.onClicked.addListener(async (tab) => {
 });
 
 
-/* ============================================================
-   Runs inside the page context
-   ============================================================ */
+
 function initThumbnailChanger() {
   // Don't open twice
   const existing = document.getElementById("stc-snackbar");
